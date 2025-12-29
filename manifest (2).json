@@ -1,0 +1,13 @@
+{
+  "background_color": "#0c3acc",
+  "dir": "ltr",
+  "display": "standalone",
+  "name": "mukhammad987.github",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "Alicontrol",
+  "start_url": "/",
+  "theme_color": "#0b6bca",
+  "id": "Alicontrol",
+  "description": "Игра управления руками жестами это новый эра видео игры разработана от Мухаммад Али Таштанбеков создан с технология компютерный зрения и обучайший моделей"
+}
