@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fruit Ninja - Gesture Edition</title>
+    <!-- Подключаем MediaPipe для отслеживания рук -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background: #1a1a1a; font-family: Arial, sans-serif; }
+        #container { position: relative; width: 100vw; height: 100vh; }
+        /* Видео с камеры (скрыто или отзеркалено на фоне) */
+        #input_video {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* Зеркальное отображение */
+            opacity: 0.3; /* Видео полупрозрачное на фоне */
+        }
+        /* Холст игры */
+        #game_canvas {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            transform: scaleX(-1); /* Тоже зеркально, чтобы совпадало с видео */
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 30px;
+            z-index: 10;
+            text-shadow: 2px 2px 5px black;
+            pointer-events: none;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 24px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div id="container">
+    <div id="loading">Загрузка нейросети и камеры...</div>
+    <div id="ui">Счет: <span id="score">0</span></div>
+    <video id="input_video"></video>
+    <canvas id="game_canvas"></canvas>
+</div>
+
+<script>
+    const videoElement = document.getElementById('input_video');
+    const canvasElement = document.getElementById('game_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const scoreElement = document.getElementById('score');
+    const loadingElement = document.getElementById('loading');
+
+    let score = 0;
+    let fruits = [];
+    let fingerPos = { x: 0, y: 0, active: false };
+    let trail = []; // След от "ножа"
+
+    // Настройка размеров канваса
+    function resize() {
+        canvasElement.width = window.innerWidth;
+        canvasElement.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Класс Фрукта
+    class Fruit {
+        constructor() {
+            this.x = Math.random() * canvasElement.width;
+            this.y = canvasElement.height + 50;
+            this.radius = 30 + Math.random() * 20;
+            this.speedY = -(10 + Math.random() * 8);
+            this.speedX = (Math.random() - 0.5) * 6;
+            this.gravity = 0.15;
+            this.sliced = false;
+            this.color = `hsl(${Math.random() * 360}, 80%, 60%)`;
+        }
+
+        update() {
+            this.y += this.speedY;
+            this.x += this.speedX;
+            this.speedY += this.gravity;
+
+            // Проверка столкновения с "пальцем" (ножом)
+            if (!this.sliced && fingerPos.active) {
+                let dist = Math.hypot(this.x - fingerPos.x, this.y - fingerPos.y);
+                if (dist < this.radius) {
+                    this.sliced = true;
+                    score += 10;
+                    scoreElement.innerText = score;
+                    createParticles(this.x, this.y, this.color);
+                }
+            }
+        }
+
+        draw() {
+            if (this.sliced) return;
+            canvasCtx.beginPath();
+            canvasCtx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            canvasCtx.fillStyle = this.color;
+            canvasCtx.fill();
+            canvasCtx.closePath();
+        }
+    }
+
+    // Эффект брызг
+    let particles = [];
+    function createParticles(x, y, color) {
+        for (let i = 0; i < 10; i++) {
+            particles.push({
+                x, y,
+                vx: (Math.random() - 0.5) * 10,
+                vy: (Math.random() - 0.5) * 10,
+                life: 1.0,
+                color
+            });
+        }
+    }
+
+    // Обработка результатов MediaPipe
+    function onResults(results) {
+        loadingElement.style.display = 'none';
+        
+        // Очистка экрана
+        canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+        // Проверка наличия рук
+        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+            const hand = results.multiHandLandmarks[0];
+            // Берем указательный палец (Landmark 8 - INDEX_FINGER_TIP)
+            const indexFinger = hand[8];
+            
+            fingerPos.x = indexFinger.x * canvasElement.width;
+            fingerPos.y = indexFinger.y * canvasElement.height;
+            fingerPos.active = true;
+
+            // Добавляем точку в след
+            trail.push({ x: fingerPos.x, y: fingerPos.y });
+            if (trail.length > 10) trail.shift();
+        } else {
+            fingerPos.active = false;
+            trail = [];
+        }
+
+        // Рисуем след ножа
+        if (trail.length > 1) {
+            canvasCtx.beginPath();
+            canvasCtx.strokeStyle = 'white';
+            canvasCtx.lineWidth = 5;
+            canvasCtx.lineJoin = 'round';
+            canvasCtx.moveTo(trail[0].x, trail[0].y);
+            for (let p of trail) canvasCtx.lineTo(p.x, p.y);
+            canvasCtx.stroke();
+        }
+
+        // Обновление и отрисовка фруктов
+        if (Math.random() < 0.03) fruits.push(new Fruit());
+
+        for (let i = fruits.length - 1; i >= 0; i--) {
+            fruits[i].update();
+            fruits[i].draw();
+            // Удаление улетевших фруктов
+            if (fruits[i].y > canvasElement.height + 100) {
+                fruits.splice(i, 1);
+            }
+        }
+
+        // Отрисовка брызг
+        for (let i = particles.length - 1; i >= 0; i--) {
+            let p = particles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life -= 0.02;
+            canvasCtx.globalAlpha = p.life;
+            canvasCtx.fillStyle = p.color;
+            canvasCtx.fillRect(p.x, p.y, 6, 6);
+            if (p.life <= 0) particles.splice(i, 1);
+        }
+        canvasCtx.globalAlpha = 1;
+    }
+
+    // Настройка MediaPipe Hands
+    const hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+
+    hands.onResults(onResults);
+
+    // Запуск камеры
+    const camera = new Camera(videoElement, {
+        onFrame: async () => {
+            await hands.send({ image: videoElement });
+        },
+        width: 1280,
+        height: 720
+    });
+    camera.start();
+
+</script>
+</body>
+</html>
